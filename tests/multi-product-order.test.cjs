@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const functions = html.match(/function guardarVenta\(\)\{[\s\S]*?(?=\nfunction del\()/)?.[0];
 
-function runOrder(lines, stock = 20) {
+function runOrder(lines, stock = 20, credit = 0) {
   assert.ok(functions, 'guardarVenta is present');
   const products = [
     { n: 'Gírgola 250 g', u: 'Gírgolas', p: 1000, c: 300, s: stock, kg: 0.25 },
@@ -18,7 +18,7 @@ function runOrder(lines, stock = 20) {
   const input = {
     venta_f: { value: '2026-10-15' }, venta_cli: { value: 'Cliente' }, venta_tel: { value: '123' },
     venta_dir: { value: 'Calle 1' }, venta_zona: { value: 'Maipú' }, venta_envR: { value: '900' },
-    venta_pago: { value: 'Efectivo' }, venta_cobrado: { value: 'Sí' }, venta_cred: { value: 'No' },
+    venta_pago: { value: 'Efectivo' }, venta_cobrado: { value: 'Sí' }, venta_cred: { value: credit ? 'Sí' : 'No' },
   };
   const document = {
     querySelectorAll: () => lines.map((line, i) => ({ dataset: { line: String(i) } })),
@@ -29,7 +29,7 @@ function runOrder(lines, stock = 20) {
     input[`venta_price_${i}`] = { value: String(line.pr || '') };
   });
   const context = vm.createContext({
-    D: { prods: products, zonas: { Maipú: 400 }, gratis: 5, rec: { cred: 0 }, clientes: [], movs: [] },
+    D: { prods: products, zonas: { Maipú: 400 }, gratis: 5, rec: { cred: credit }, clientes: [], movs: [] },
     FD: { venta: [['f'], ['p'], ['q'], ['pr'], ['cli'], ['tel'], ['dir'], ['zona'], ['envR', '', 'number'], ['pago'], ['cobrado', '', 'yn'], ['cred', '', 'yn']] },
     document, $: id => input[id.slice(1)] || null,
     P: n => products.find(p => p.n === n) || {}, precio: p => p.p, promoOn: () => false,
@@ -63,5 +63,12 @@ test('rejects an incomplete order without saving any product', () => {
   assert.equal(c.D.movs.length, 0);
   assert.equal(c.D.prods[0].s, 20);
   assert.match(c.lastToast, /cantidad válida/);
+});
+
+test('applies visit credit once across the complete order', () => {
+  const c = runOrder([{ p: 'Gírgola 250 g', q: 1 }, { p: 'Burger x6', q: 1 }], 20, 1200);
+  assert.equal(c.D.movs[0].p * c.D.movs[0].q + c.D.movs[1].p * c.D.movs[1].q, 2200);
+  assert.equal(c.D.movs.reduce((a, m) => a + m.credAmt, 0), 1200);
+  assert.equal(c.D.movs.filter(m => m.cred).length, 1, 'the order has one control to remove the credit');
 });
 
