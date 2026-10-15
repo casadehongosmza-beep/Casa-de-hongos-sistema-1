@@ -155,10 +155,10 @@ function guardar0(ft){if(ft=='venta')return guardarVenta();warn='';const m={t:ft
   if(L.some(([a])=>a.s<0))warn='Ojo: el stock quedó en negativo. Cargá la producción o el stock inicial.';m.prod=m.p0}}
  if(m.t=='prod'){const p=P(m.p),ok=m.q-(m.merma||0),g=P('Gírgola por kg');m.u=p.u;
  if(p.u=='Burger'){const x6=p.n=='Burger x6',kg=m.q*(x6?6:1)*D.rec.kg/D.rec.burgers;if(g.s<kg)warn='Ojo: no alcanzaba el stock de gírgola.';g.s=Math.round((g.s-kg)*100)/100;if(!m.costoT)p.c=Math.round(costoBurger()*(x6?600:100))/100}
- p.s=Math.round((p.s+ok)*100)/100;if(m.costoT&&ok>0)p.c=m.costoT/ok}
+ p.s=Math.round((p.s+ok)*100)/100;if(m.costoT&&ok>0){m.previousProductCost=p.c;m.productCost=m.costoT/ok;p.c=m.productCost}}
  if(ft=='band'){const p=P(m.p),g=P('Gírgola por kg'),kg=m.q*p.kg;if(g.s<kg)warn='Ojo: no alcanzaba el stock de gírgola.';g.s=Math.round((g.s-kg)*100)/100;p.s+=m.q;if(g.c)p.c=g.c*p.kg}
  if(ft=='visita'){m.p='Visita';if(!m.pp){m.pp=precio(P('Visita'));m.dp=Math.max(0,P('Visita').p-m.pp)}}
- D.movs.push(m);save();render();toast(warn||'✔ Guardado')}
+ if(m.t=='prod'||m.t=='band')m.stockImpact=stockImpactFor(m);D.movs.push(m);save();render();toast(warn||'✔ Guardado')}
 function guardarVenta(){warn='';const valor=id=>$('#venta_'+id)?.value||'',m={t:'venta',id:Date.now()},lines=[...document.querySelectorAll('.sale-line')].map(e=>{const i=e.dataset.line,p=$('#venta_prod_'+i)?.value,q=parseFloat($('#venta_qty_'+i)?.value)||0,pr=parseFloat($('#venta_price_'+i)?.value)||0;return{p,q,pr}});if(!lines.length||lines.some(x=>!x.p||!(x.q>0)))return toast('Elegí un producto e ingresá una cantidad válida en cada renglón');
  FD.venta.filter(([id])=>!['f','p','q','pr'].includes(id)).forEach(([id,,t])=>{let v=valor(id);if(t=='number')v=parseFloat(v)||0;if(t=='yn')v=v=='Sí';m[id]=v});m.f=valor('f')||hoy();m.cli=(m.cli||'').trim();m.tel=(m.tel||'').trim();
  const visit=lines.some(x=>P(x.p).u=='Visitas');if(visit&&(lines.length!=1||P(lines[0].p).u!='Visitas'))return toast('Las visitas se cargan por separado, no como producto de un pedido');
@@ -167,9 +167,16 @@ function guardarVenta(){warn='';const valor=id=>$('#venta_'+id)?.value||'',m={t:
  if(prepared.some(x=>!x.unit))return toast('Hay un producto sin precio: completá el precio o configurá el producto');
  if(visit){const x=prepared[0];m.t='visita';m.p='Visita';m.pers=x.q;m.pp=x.pr||price(x.product)||0;m.dp=x.dp;if(!m.pp)return toast('Poné el precio de la visita');D.movs.push(m);save();render();return toast('✔ Guardado')}
  const required=prepared.flatMap(x=>x.product.combo?x.product.combo.flatMap(c=>desc(P(c.n),c.q*x.q)):desc(x.product,x.q));required.forEach(([p,q])=>pendingStock.set(p,(pendingStock.get(p)||0)+q));const totalQty=prepared.reduce((a,x)=>a+x.q,0),env=m.zona=='Sin envío'||totalQty>=D.gratis?0:D.zonas[m.zona]||0,envR=m.envR||env,orderId=`${Date.now()}-${Math.random().toString(36).slice(2,8)}`;let credit=m.cred?D.rec.cred:0;
- prepared.forEach((x,i)=>{const due=Math.min(credit,x.unit*x.q);credit-=due;const line={...m,t:'venta',id:Date.now()+i+Math.random(),pedido_id:orderId,p:Math.max(0,x.unit-due/x.q),p0:x.p,prod:x.p,q:x.q,dp:x.dp,c:x.product.c||0,env:i===0?env:0,envR:i===0?envR:0,cred:!!(m.cred&&i===0),credAmt:due};D.movs.push(line)});
+ prepared.forEach((x,i)=>{const due=Math.min(credit,x.unit*x.q);credit-=due;const line={...m,t:'venta',id:Date.now()+i+Math.random(),pedido_id:orderId,p:Math.max(0,x.unit-due/x.q),p0:x.p,prod:x.p,q:x.q,dp:x.dp,c:x.product.c||0,env:i===0?env:0,envR:i===0?envR:0,cred:!!(m.cred&&i===0),credAmt:due};line.stockImpact=stockImpactFor(line);D.movs.push(line)});
  pendingStock.forEach((q,p)=>p.s=Math.round((p.s-q)*100)/100);if([...pendingStock].some(([p])=>p.s<0))warn='Ojo: el stock quedó en negativo. Cargá la producción o el stock inicial.';save();render();toast(warn||`✔ Pedido guardado con ${prepared.length} producto(s)`)}
-function del(id){if(!sure('del'+id,'Se borra el pedido completo si tiene varios productos (el stock no se revierte).'))return;const target=D.movs.find(m=>m.id==id),oid=target?.pedido_id;D.movs=D.movs.filter(m=>oid?m.pedido_id!=oid:m.id!=id);save();render()}
+function stockImpactFor(m){const changes=new Map(),add=(p,q)=>{if(!p?.n||!q)return;changes.set(p.n,(changes.get(p.n)||0)+q)},consume=(p,q)=>{if(p.combo)p.combo.forEach(x=>consume(P(x.n),q*x.q));else if(p.kg)add(P('Gírgola por kg'),q*p.kg);else if(p.un)add(P('Burger (unidad)'),q*p.un);else add(p,q)};
+ if(Array.isArray(m.stockImpact))return m.stockImpact;
+ if(m.t=='venta')consume(P(m.prod||m.p0),-(m.q||0));
+ if(m.t=='prod'){const p=P(m.p),ok=(m.q||0)-(m.merma||0);add(p,ok);if(p.u=='Burger'){const kg=(m.q||0)*(p.n=='Burger x6'?6:1)*D.rec.kg/D.rec.burgers;add(P('Gírgola por kg'),-kg)}}
+ if(m.t=='band'){const p=P(m.p);add(p,m.q||0);add(P('Gírgola por kg'),-(m.q||0)*(p.kg||0))}
+ return[...changes].filter(([,delta])=>delta).map(([product,delta])=>({product,delta}))}
+function applyStockImpact(m,direction){stockImpactFor(m).forEach(({product,delta})=>{const p=P(product);p.s=Math.round(((Number(p.s)||0)+delta*direction)*100)/100})}
+function del(id){if(!sure('del'+id,'Se borra el pedido completo y se revierten sus cambios de stock y costo.'))return;const target=D.movs.find(m=>m.id==id),oid=target?.pedido_id,removed=D.movs.filter(m=>oid?m.pedido_id==oid:m.id==id);removed.forEach(m=>applyStockImpact(m,-1));D.movs=D.movs.filter(m=>oid?m.pedido_id!=oid:m.id!=id);removed.filter(m=>m.productCost!==undefined).forEach(m=>{const newer=D.movs.slice().reverse().find(x=>x.p==m.p&&x.productCost!==undefined);P(m.p).c=newer?newer.productCost:(m.previousProductCost??P(m.p).c)});save();render();toast('Movimiento borrado y stock/costo actualizado')}
 const usados=f=>D.movs.filter(m=>m.t=='reserva'&&m.f==f&&m.est!='Cancelada').reduce((a,m)=>a+m.pers,0);
 function proxVis(){const f=D.movs.filter(m=>m.t=='reserva'&&m.est=='Reservada'&&m.f>=hoy()).map(m=>m.f).sort()[0];return f?`📅 Próxima visita: ${f} · ${usados(f)}/${D.rec.cupo} cupos`:'📅 Sin visitas reservadas'}
 function pVis(){const rs=D.movs.filter(m=>m.t=='reserva'),fs=[...new Set(rs.map(m=>m.f))].sort().reverse();

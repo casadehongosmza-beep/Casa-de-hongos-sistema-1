@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const functions = html.match(/function guardarVenta\(\)\{[\s\S]*?(?=\nfunction del\()/)?.[0];
+const stockFunctions = html.match(/function stockImpactFor\(m\)\{[\s\S]*?(?=\nconst usados)/)?.[0];
 
 function runOrder(lines, stock = 20, credit = 0) {
   assert.ok(functions, 'guardarVenta is present');
@@ -70,5 +71,77 @@ test('applies visit credit once across the complete order', () => {
   assert.equal(c.D.movs[0].p * c.D.movs[0].q + c.D.movs[1].p * c.D.movs[1].q, 2200);
   assert.equal(c.D.movs.reduce((a, m) => a + m.credAmt, 0), 1200);
   assert.equal(c.D.movs.filter(m => m.cred).length, 1, 'the order has one control to remove the credit');
+});
+
+function runDelete(movements, products, recipe = { kg: 2.5, burgers: 40 }) {
+  assert.ok(stockFunctions, 'stockImpactFor and del are present');
+  const context = vm.createContext({
+    D: { movs: movements, prods: products, rec: recipe },
+    P: n => products.find(p => p.n === n) || {}, sure: () => true,
+    save() {}, render() {}, toast: message => { context.lastToast = message },
+    Math, Number,
+  });
+  vm.runInContext(`${stockFunctions}\ndel(${movements[0].id})`, context);
+  return context;
+}
+
+test('deleting one item from a multi-product order restores stock for the whole order', () => {
+  const products = [
+    { n: 'Gírgola 250 g', kg: 0.25, s: 19.5 },
+    { n: 'Gírgola por kg', s: 9.5 },
+    { n: 'Burger (unidad)', s: 4 },
+    { n: 'Burger x6', un: 6, s: 0 },
+  ];
+  const c = runDelete([
+    { t: 'venta', id: 1, pedido_id: 'pedido', prod: 'Gírgola 250 g', q: 2, stockImpact: [{ product: 'Gírgola por kg', delta: -0.5 }] },
+    { t: 'venta', id: 2, pedido_id: 'pedido', prod: 'Burger x6', q: 1 },
+  ], products);
+  assert.equal(c.D.movs.length, 0);
+  assert.equal(c.D.prods.find(p => p.n === 'Gírgola por kg').s, 10);
+  assert.equal(c.D.prods.find(p => p.n === 'Burger (unidad)').s, 10);
+  assert.match(c.lastToast, /stock\/costo actualizado/);
+});
+
+test('deleting production and harvest reverses their stock effects, using saved impacts when present', () => {
+  const products = [
+    { n: 'Gírgola por kg', s: 4.875 },
+    { n: 'Burger (unidad)', u: 'Burger', s: 5 },
+  ];
+  const c = runDelete([
+    { t: 'prod', id: 3, p: 'Burger (unidad)', q: 2, merma: 1,
+      stockImpact: [{ product: 'Burger (unidad)', delta: 1 }, { product: 'Gírgola por kg', delta: -0.125 }] },
+  ], products);
+  assert.equal(c.D.prods.find(p => p.n === 'Burger (unidad)').s, 4);
+  assert.equal(c.D.prods.find(p => p.n === 'Gírgola por kg').s, 5);
+
+  products[0].s = 19;
+  const harvest = runDelete([{ t: 'prod', id: 4, p: 'Gírgola por kg', q: 10, merma: 1 }], products);
+  assert.equal(harvest.D.prods[0].s, 10, 'legacy harvests without a saved impact use net kg');
+});
+
+test('deleting a band reverses both the mushroom input and packed-product stock', () => {
+  const products = [
+    { n: 'Gírgola por kg', s: 4.5 },
+    { n: 'Bandeja 250 g', kg: 0.25, s: 2 },
+  ];
+  const c = runDelete([{ t: 'band', id: 5, p: 'Bandeja 250 g', q: 2 }], products);
+  assert.equal(c.D.prods[0].s, 5);
+  assert.equal(c.D.prods[1].s, 0);
+});
+
+test('deleting a costed extract production restores the previous unit cost', () => {
+  const products = [{ n: 'Extracto', u: 'Otros', c: 200, s: 8 }];
+  const c = runDelete([
+    { t: 'prod', id: 6, p: 'Extracto', q: 2, productCost: 200, previousProductCost: 150 },
+    { t: 'prod', id: 7, p: 'Extracto', q: 2, productCost: 150, previousProductCost: 100 },
+  ], products);
+  assert.equal(c.D.prods[0].c, 150, 'the remaining production becomes the active unit cost');
+});
+
+test('deleting an expense movement removes it without changing product stock', () => {
+  const products = [{ n: 'Extracto', u: 'Otros', c: 100, s: 8 }];
+  const c = runDelete([{ t: 'gasto', id: 8, det: 'Envío', monto: 3000 }], products);
+  assert.equal(c.D.movs.length, 0);
+  assert.equal(c.D.prods[0].s, 8);
 });
 
