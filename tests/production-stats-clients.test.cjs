@@ -65,3 +65,23 @@ test('configuration confirmation waits for cloud persistence and reports its res
   assert.deepEqual(calls, ['local', 'cloud', '✔ Precios y costos guardados y sincronizados']);
 });
 
+test('production module combines mushroom harvest and burger production as selectable views', () => {
+  const fn = html.match(/function pProduccion\(\)\{[\s\S]*?(?=\nfunction statsData)/);
+  assert.ok(fn, 'pProduccion is present');
+  const context = vm.createContext({
+    D: { prods: [{ n: 'Gírgola por kg', s: 8 }, { n: 'Burger (unidad)', s: 12 }], movs: [] },
+    prodTab: 'cosecha', P: n => ({ 'Gírgola por kg': { n, s: 8 }, 'Burger (unidad)': { n, s: 12 } }[n]),
+    kgCos: () => 3, mes: () => '2026-10', stockImpactFor: () => [],
+    frm: (name, title) => `<form data-type="${name}">${title}</form>`,
+    Math,
+  });
+  vm.runInContext(fn[0], context);
+  const harvest = context.pProduccion();
+  assert.match(harvest, /Cosecha de gírgolas/);
+  assert.match(harvest, /Registrar cosecha de gírgolas/);
+  context.prodTab = 'burger';
+  const burgers = context.pProduccion();
+  assert.match(burgers, /Producción de burgers/);
+  assert.match(burgers, /Registrar producción de burgers/);
+});
+
