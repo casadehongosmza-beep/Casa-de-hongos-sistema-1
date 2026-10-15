@@ -132,13 +132,18 @@ function fld([id,l,t],k){let o='';const v=id=='f'?hoy():'',I=`${k}_${id}`;
  return`<label>${l}</label>${o}`}
 const CT=[['venta','Venta'],['gir','Gírgolas'],['burger','Burger'],['otros','Extractos'],['compra','Compra'],['gasto','Gasto'],['visita','Visita']];
 const frm=(k,tit)=>`<h2>${tit}</h2>${FD[k].map(x=>fld(x,k)).join('')}<button class="btn" onclick="guardar('${k}')">Guardar</button>`;
+let ventaLineas=1;
+function filaVenta(i){return`<div class="r sale-line" data-line="${i}"><label>Producto ${i+1}</label><select class="sale-prod" id="venta_prod_${i}">${D.prods.filter(p=>p.u!='Visitas'&&!p.combo||p.combo).map(p=>`<option value="${p.n}">${promoOn(p)?'🏷 ':''}${p.n}${promoOn(p)?' · promo '+$$$(p.promo):''}</option>`).join('')}</select><label>Cantidad</label><input class="sale-qty" id="venta_qty_${i}" type="number" min="0.01" step="any" inputmode="decimal"><label>Precio unitario (opcional)</label><input class="sale-price" id="venta_price_${i}" type="number" min="0" step="any" inputmode="decimal" placeholder="Precio vigente${i?'':' · promo si hay'}">${i?`<button type="button" onclick="quitarVentaLinea(${i})">Quitar producto</button>`:''}</div>`}
+function agregarVentaLinea(){const c=$('#ventaLineas');if(!c)return;const i=ventaLineas++;c.insertAdjacentHTML('beforeend',filaVenta(i))}
+function quitarVentaLinea(i){const e=document.querySelector(`[data-line="${i}"]`);if(e)e.remove()}
+function frmVenta(){ventaLineas=1;return`<h2>Venta</h2><label>Fecha</label><input id="venta_f" type="date" value="${hoy()}"><div id="ventaLineas">${filaVenta(0)}</div><button type="button" onclick="agregarVentaLinea()">+ Agregar otro producto</button>${FD.venta.filter(([id])=>!['f','p','q','pr'].includes(id)).map(x=>fld(x,'venta')).join('')}<button class="btn" onclick="guardar('venta')">Guardar pedido</button>`}
 function pCargar(){if(!CT.some(c=>c[0]==ft))ft='venta';
  const g=P('Gírgola por kg'),bn=P('Burger (unidad)'),b6=P('Burger x6');
- const b=ft=='gir'?`<div class="r">Stock de gírgola: <b>${Math.round(g.s*100)/100} kg</b><br><small>Equivale a ${Math.floor(g.s)} bandejas de 1 kg · ${Math.floor(g.s*2)} de 500 g · ${Math.floor(g.s*4)} de 250 g. Las ventas descuentan solas los kg.</small></div>`+frm('cosecha','🍄 Cosecha de gírgolas'):ft=='burger'?`<div class="r">Stock: <b>${bn.s}</b> Burger ≈ <b>${Math.floor(bn.s/6)}</b> cajas x6 <small>(las ventas descuentan solas)</small></div>`+frm('burger','🍔 Producción de Burger (por unidad)'):ft=='visita'?`<div class="r">Reservas de visitas · horario y precio configurables desde la sección Configuración.</div>`+frm('visita','Visita sin reserva'):frm(ft,CT.find(c=>c[0]==ft)[1]);
+ const b=ft=='gir'?`<div class="r">Stock de gírgola: <b>${Math.round(g.s*100)/100} kg</b><br><small>Equivale a ${Math.floor(g.s)} bandejas de 1 kg · ${Math.floor(g.s*2)} de 500 g · ${Math.floor(g.s*4)} de 250 g. Las ventas descuentan solas los kg.</small></div>`+frm('cosecha','🍄 Cosecha de gírgolas'):ft=='burger'?`<div class="r">Stock: <b>${bn.s}</b> Burger ≈ <b>${Math.floor(bn.s/6)}</b> cajas x6 <small>(las ventas descuentan solas)</small></div>`+frm('burger','🍔 Producción de Burger (por unidad)'):ft=='visita'?`<div class="r">Reservas de visitas · horario y precio configurables desde la sección Configuración.</div>`+frm('visita','Visita sin reserva'):ft=='venta'?frmVenta():frm(ft,CT.find(c=>c[0]==ft)[1]);
  return`<div class="tabs">${CT.map(c=>`<button class="${c[0]==ft?'on':''}" onclick="ft='${c[0]}';render()">${c[1]}</button>`).join('')}</div>${b}
  <h2>Últimos movimientos</h2>${D.movs.slice(-8).reverse().map(m=>`<div class="r">${m.f} · <b>${m.t}</b> · ${(m.t=='venta'?(m.q+' × '+m.prod):m.p)||m.det||m.cli||m.prov||''} <button style="float:right" onclick="del(${m.id})">✕</button></div>`).join('')}`}
 function guardar(k){try{guardar0(k)}catch(e){toast('Error: '+e.message)}}
-function guardar0(ft){warn='';const m={t:ft,id:Date.now()};
+function guardar0(ft){if(ft=='venta')return guardarVenta();warn='';const m={t:ft,id:Date.now()};
  FD[ft].forEach(([id,,t])=>{let v=$('#'+ft+'_'+id).value;if(t=='number')v=parseFloat(v)||0;if(t=='yn')v=v=='Sí';m[id]=v});if(ft=='cosecha'){m.t='prod';m.p='Gírgola por kg'}if(ft=='burger'||ft=='otros')m.t='prod';if(ft=='venta'&&m.cli&&m.tel){const c=D.clientes.find(x=>x.n.toLowerCase()==m.cli.toLowerCase());if(c)c.tel=c.tel||m.tel;else D.clientes.push({n:m.cli,tel:m.tel})}
  if(ft=='venta'){const p=P(m.p);
  if(!(m.q>0))return toast('Ingresá la cantidad');
@@ -154,7 +159,17 @@ function guardar0(ft){warn='';const m={t:ft,id:Date.now()};
  if(ft=='band'){const p=P(m.p),g=P('Gírgola por kg'),kg=m.q*p.kg;if(g.s<kg)warn='Ojo: no alcanzaba el stock de gírgola.';g.s=Math.round((g.s-kg)*100)/100;p.s+=m.q;if(g.c)p.c=g.c*p.kg}
  if(ft=='visita'){m.p='Visita';if(!m.pp){m.pp=precio(P('Visita'));m.dp=Math.max(0,P('Visita').p-m.pp)}}
  D.movs.push(m);save();render();toast(warn||'✔ Guardado')}
-function del(id){if(!sure('del'+id,'Se borra el movimiento (el stock no se revierte).'))return;D.movs=D.movs.filter(m=>m.id!=id);save();render()}
+function guardarVenta(){warn='';const valor=id=>$('#venta_'+id)?.value||'',m={t:'venta',id:Date.now()},lines=[...document.querySelectorAll('.sale-line')].map(e=>{const i=e.dataset.line,p=$('#venta_prod_'+i)?.value,q=parseFloat($('#venta_qty_'+i)?.value)||0,pr=parseFloat($('#venta_price_'+i)?.value)||0;return{p,q,pr}});if(!lines.length||lines.some(x=>!x.p||!(x.q>0)))return toast('Elegí un producto e ingresá una cantidad válida en cada renglón');
+ FD.venta.filter(([id])=>!['f','p','q','pr'].includes(id)).forEach(([id,,t])=>{let v=valor(id);if(t=='number')v=parseFloat(v)||0;if(t=='yn')v=v=='Sí';m[id]=v});m.f=valor('f')||hoy();m.cli=(m.cli||'').trim();m.tel=(m.tel||'').trim();
+ const visit=lines.some(x=>P(x.p).u=='Visitas');if(visit&&(lines.length!=1||P(lines[0].p).u!='Visitas'))return toast('Las visitas se cargan por separado, no como producto de un pedido');
+ if(m.cli&&m.tel){const c=D.clientes.find(x=>x.n.toLowerCase()==m.cli.toLowerCase());if(c)c.tel=c.tel||m.tel;else D.clientes.push({n:m.cli,tel:m.tel})}
+ recalc();let pendingStock=new Map(),prepared=lines.map(line=>{const p=P(line.p),base=precio(p),cp=((D.clientes.find(c=>c.n.toLowerCase()==(m.cli||'').toLowerCase())||{}).precios||{})[line.p],unit=line.pr||cp||base,dp=!line.pr&&!cp?Math.max(0,p.p-base):0;return{...line,product:p,unit,dp}});
+ if(prepared.some(x=>!x.unit))return toast('Hay un producto sin precio: completá el precio o configurá el producto');
+ if(visit){const x=prepared[0];m.t='visita';m.p='Visita';m.pers=x.q;m.pp=x.pr||price(x.product)||0;m.dp=x.dp;if(!m.pp)return toast('Poné el precio de la visita');D.movs.push(m);save();render();return toast('✔ Guardado')}
+ const required=prepared.flatMap(x=>x.product.combo?x.product.combo.flatMap(c=>desc(P(c.n),c.q*x.q)):desc(x.product,x.q));required.forEach(([p,q])=>pendingStock.set(p,(pendingStock.get(p)||0)+q));const totalQty=prepared.reduce((a,x)=>a+x.q,0),env=m.zona=='Sin envío'||totalQty>=D.gratis?0:D.zonas[m.zona]||0,envR=m.envR||env,orderId=`${Date.now()}-${Math.random().toString(36).slice(2,8)}`;let credit=m.cred?D.rec.cred:0;
+ prepared.forEach((x,i)=>{const due=Math.min(credit,x.unit*x.q);credit-=due;const line={...m,t:'venta',id:Date.now()+i+Math.random(),pedido_id:orderId,p:Math.max(0,x.unit-due/x.q),p0:x.p,prod:x.p,q:x.q,dp:x.dp,c:x.product.c||0,env:i===0?env:0,envR:i===0?envR:0,cred:!!(m.cred&&i===0),credAmt:due};D.movs.push(line)});
+ pendingStock.forEach((q,p)=>p.s=Math.round((p.s-q)*100)/100);if([...pendingStock].some(([p])=>p.s<0))warn='Ojo: el stock quedó en negativo. Cargá la producción o el stock inicial.';save();render();toast(warn||`✔ Pedido guardado con ${prepared.length} producto(s)`)}
+function del(id){if(!sure('del'+id,'Se borra el pedido completo si tiene varios productos (el stock no se revierte).'))return;const target=D.movs.find(m=>m.id==id),oid=target?.pedido_id;D.movs=D.movs.filter(m=>oid?m.pedido_id!=oid:m.id!=id);save();render()}
 const usados=f=>D.movs.filter(m=>m.t=='reserva'&&m.f==f&&m.est!='Cancelada').reduce((a,m)=>a+m.pers,0);
 function proxVis(){const f=D.movs.filter(m=>m.t=='reserva'&&m.est=='Reservada'&&m.f>=hoy()).map(m=>m.f).sort()[0];return f?`📅 Próxima visita: ${f} · ${usados(f)}/${D.rec.cupo} cupos`:'📅 Sin visitas reservadas'}
 function pVis(){const rs=D.movs.filter(m=>m.t=='reserva'),fs=[...new Set(rs.map(m=>m.f))].sort().reverse();
@@ -171,12 +186,13 @@ function asis(id,nc){const m=D.movs.find(x=>x.id==id),pp=precio(P('Visita'));m.e
 function canc(id){if(sure('c'+id,'Se cancela la reserva.')){D.movs.find(x=>x.id==id).est='Cancelada';save();render()}}
 function wa(id){const m=D.movs.find(x=>x.id==id),t=`Hola ${m.cli}! Te confirmamos tu visita a Casa de Hongos el ${m.f} para ${m.pers} persona(s). ¡Te esperamos!`;
  window.open('https://wa.me/'+(m.tel||'').replace(/\D/g,'')+'?text='+encodeURIComponent(t))}
-function pRep(){const v=D.movs.filter(m=>m.t=='venta'&&m.zona&&m.zona!='Sin envío'||m.t=='venta'&&m.dir);
- const txt=v.filter(m=>!m.ent).map(m=>`📦 ${m.cli} — ${m.q} × ${m.prod||m.p0}\n📍 ${m.dir||''} (${m.zona})\n📞 ${m.tel||telDe(m.cli)}\n💵 ${m.cobrado?'YA PAGADO':'Cobrar '+$$$(m.p*m.q+m.env)} (${m.pago})`).join('\n\n');
+function pRep(){const v=D.movs.filter(m=>m.t=='venta'&&m.zona&&m.zona!='Sin envío'||m.t=='venta'&&m.dir),groups=[...new Map(v.map(m=>[m.pedido_id||`mov-${m.id}`,v.filter(x=>(x.pedido_id||`mov-${x.id}`)==(m.pedido_id||`mov-${m.id}`))])).values()];
+ const txt=groups.filter(g=>!g.every(m=>m.ent)).map(g=>{const m=g[0],items=g.map(x=>`${x.q} × ${x.prod||x.p0}`).join(', '),total=g.reduce((a,x)=>a+x.p*x.q+x.env,0);return`📦 ${m.cli} — ${items}\n📍 ${m.dir||''} (${m.zona})\n📞 ${m.tel||telDe(m.cli)}\n💵 ${m.cobrado?'YA PAGADO':'Cobrar '+$$$(total)} (${m.pago})`}).join('\n\n');
  window._t=txt;
- return`<button class="btn" onclick="share()">Compartir repartos pendientes con el cadete</button><h2>Pedidos</h2>${v.slice().reverse().map(m=>`<div class="r"><b>${m.cli||'—'}</b> · ${m.zona}<br>${m.q} × ${m.prod||m.p0} · ${m.dir||''} · ${m.tel||telDe(m.cli)}<br>Envío cobrado ${$$$(m.env)} / costo ${$$$(m.envR)} ${m.ent?'<span class="ok">✔ entregado</span>':`<button onclick="ent(${m.id})">Marcar entregado</button>`}</div>`).join('')}`}
+ return`<button class="btn" onclick="share()">Compartir repartos pendientes con el cadete</button><h2>Pedidos</h2>${groups.slice().reverse().map(g=>{const m=g[0];return`<div class="r"><b>${m.cli||'—'}</b> · ${m.zona}<br>${g.map(x=>`${x.q} × ${x.prod||x.p0}`).join(' + ')} · ${m.dir||''} · ${m.tel||telDe(m.cli)}<br>Envío cobrado ${$$$(m.env)} / costo ${$$$(m.envR)} ${g.every(x=>x.ent)?'<span class="ok">✔ entregado</span>':`<button onclick="entPedido('${m.pedido_id||m.id}')">Marcar entregado</button>`}</div>`}).join('')}`}
 function share(){const t=window._t||'Sin repartos pendientes';if(navigator.share)navigator.share({text:t}).catch(()=>{});else window.open('https://wa.me/?text='+encodeURIComponent(t))}
 function ent(id){D.movs.find(m=>m.id==id).ent=1;save();render()}
+function entPedido(id){D.movs.filter(m=>m.pedido_id==id||m.id==id).forEach(m=>m.ent=1);save();render()}
 function pStock(){return`<div class="tb"><table><tr><th>Producto</th><th>Stock</th><th>Mín.</th></tr>${D.prods.filter(p=>p.u!='Visitas'&&!p.combo&&!p.kg&&!p.un).map(p=>`<tr><td>${promoOn(p)?'🏷 ':''}${p.n}</td><td class="${p.s<=p.m?'al':''}">${Math.round(p.s*100)/100}${p.n=='Gírgola por kg'?' kg':''}</td><td>${p.m}</td></tr>`).join('')}</table></div>`}
 const tot=m=>m.t=='venta'?m.p*m.q+m.env:m.pers*m.pp,key=m=>m.prov||m.det||'—';let xsel='';
 function saldos(){const C={},V={};
@@ -196,7 +212,7 @@ function extracto(){const A=['venta','visita','cobro','saldo'],B=['compra','gast
  const rows=D.movs.filter(m=>(A.includes(m.t)&&(m.cli||'—')==xsel)||(B.includes(m.t)&&key(m)==xsel)).map(m=>{let d=m.t=='saldo'?m.monto:m.t=='venta'||m.t=='visita'?(m.cobrado?0:tot(m)):m.t=='compra'||m.t=='gasto'?(m.pagado?0:m.monto):-m.monto;
   if(!d)return'';sa+=d;return`<tr><td>${m.f}</td><td>${m.t}</td><td>${$$$(d)}</td><td>${$$$(sa)}</td></tr>`}).join('');
  return`<h2>Extracto de cuenta</h2><select onchange="xsel=this.value;render()">${nm.map(n=>`<option ${n==xsel?'selected':''}>${n}</option>`).join('')}</select><div class="tb"><table><tr><th>Fecha</th><th>Mov.</th><th>Importe</th><th>Saldo</th></tr>${rows}</table></div>`}
-function sinCred(id){const m=D.movs.find(x=>x.id==id);m.p=(m.p*m.q+(m.credAmt||D.rec.cred))/m.q;m.cred=false;save();render();toast('Crédito de visita quitado')}
+function sinCred(id){const m=D.movs.find(x=>x.id==id),items=m.pedido_id?D.movs.filter(x=>x.pedido_id==m.pedido_id):[m];items.forEach(x=>{if(x.credAmt){x.p=(x.p*x.q+x.credAmt)/x.q;x.credAmt=0}x.cred=false});save();render();toast('Crédito de visita quitado')}
 function pVentas(){const v=D.movs.filter(m=>m.t=='venta').slice().reverse(),sub=v.reduce((a,m)=>a+m.p*m.q,0),en=v.reduce((a,m)=>a+m.env,0);
  return`<div class="r">Total de ventas: productos <b>${$$$(sub)}</b> + envíos <b>${$$$(en)}</b> = <b>${$$$(sub+en)}</b></div>`+(v.map(m=>{const t=m.p*m.q;return`<div class="r"><b>${m.f}</b> · ${m.cli||'—'}<br>${m.q} × ${m.prod||m.p0} a ${$$$(m.p)} = <b>${$$$(t)}</b>${m.dp?` <small>(promo −${$$$(m.dp)} c/u)</small>`:''}${m.cred?` <small class="al">(con crédito de visita −${$$$(m.credAmt||D.rec.cred)})</small>`:''}<br>Envío ${m.zona||'—'}: ${$$$(m.env)} · <b>Total ${$$$(t+m.env)}</b> · ${m.cobrado?'<span class="ok">cobrado</span>':'<span class="al">sin cobrar</span>'}<br>Ganancia: ${$$$(t-cst(m)+m.env-m.envR)}<br>${m.cred?`<button onclick="sinCred(${m.id})">Quitar crédito</button> `:''}<button onclick="del(${m.id})">Borrar</button></div>`}).join('')||'<div class="r">Todavía no hay ventas</div>')}
 function pGastos(){const g=D.movs.filter(m=>m.t=='gasto'||m.t=='compra').slice().reverse(),mm=g.filter(m=>m.f.startsWith(mes())),T=a=>$$$(a.reduce((x,m)=>x+m.monto,0)),por={};
@@ -232,4 +248,5 @@ function pCfg(){const r=D.rec;return`<h2>Productos</h2>${D.prods.map((p,i)=>`<di
  <button class="btn s" onclick="if(sure('reset','Se borran TODOS los datos.')){D=JSON.parse(JSON.stringify(def));save();location.reload()}">Reiniciar datos</button>`}
 initCloud();
 </script></body></html>
+
 
