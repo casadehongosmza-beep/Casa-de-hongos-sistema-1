@@ -6,9 +6,9 @@ const vm = require('node:vm');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 
 test('manual product costs survive recalculation while automatic costs still recalculate', () => {
-  const derived = html.match(/const costoDerivado=[^\\n]+/);
-  const cost = html.match(/function costoDe\\(p,ym\\)\\{[^\\n]+/);
-  const recalc = html.match(/function recalc\\(\\)\\{[^\\n]+/);
+  const derived = html.match(/const costoDerivado=[^\n]+/);
+  const cost = html.match(/function costoDe\(p,ym\)\{[^\n]+/);
+  const recalc = html.match(/function recalc\(\)\{[^\n]+/);
   assert.ok(derived && cost && recalc);
   const context = vm.createContext({
     D: { prods: [
@@ -18,7 +18,7 @@ test('manual product costs survive recalculation while automatic costs still rec
     P: () => ({}), costoKgMes: () => 250, burgerU: () => 100,
     kgCos: () => 0, mes: () => '2026-10', fijoGir: () => 0,
   });
-  vm.runInContext(`${derived[0]}\\n${cost[0]}\\n${recalc[0]}`, context);
+  vm.runInContext([derived[0], cost[0], recalc[0]].join('\n'), context);
   context.recalc();
   assert.equal(context.D.prods[0].c, 1234);
   assert.equal(context.D.prods[1].c, 100);
@@ -26,7 +26,7 @@ test('manual product costs survive recalculation while automatic costs still rec
 });
 
 test('configuration allows choosing manual cost mode for calculated products', () => {
-  const cfg = html.match(/function pCfg\\(\\)[\\s\\S]*?(?=\\nfunction |\\ninitCloud\\()/);
+  const cfg = html.match(/function pCfg\(\)[\s\S]*?(?=\nfunction |\ninitCloud\()/);
   assert.ok(cfg);
   assert.match(cfg[0], /Modo de costo/);
   assert.match(cfg[0], /value="manual"/);
